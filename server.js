@@ -3,6 +3,8 @@ const app = express()
 const Joi = require('joi')
 // 1. Need mongoose to connect to the database
 const mongoose = require('mongoose')
+// jsonwebtoken used to create json web tokens
+const jwt = require('jsonwebtoken')
 
 // 2. Connect to the database called 'playground'. If 'playground' doesn't exist, it will be made automatically
 mongoose.connect('mongodb://localhost/tile_game') 
@@ -61,41 +63,77 @@ app.use(express.json())
 // Operation: None
 // Response: All the scores
 app.get('/api/scores', async (req, res) => {
+  // 1. Get all the scores from the database
   const scores = await Score.find()
 
-  res.send(scores)
+  // 2. Generate a JSON web token
+  const token = jwt.sign({ _id: this._id}, process.env.JWTKEY)
+
+  // 3. Send back the scores and the token in the header
+  res.header('x-auth-token', token).send(scores)
 })
 
 // Request: Create a new score object and store it in the array
 // Operation: Create a new score in the array
 // Response: The newly created score
 app.post('/api/scores', async (req, res) => {
-  // 1. Check if the score object passes the validation
-  const { error, value } = validateScore(req.body)
+  // 1. Get the token from the request header.
+  const token = req.header('x-auth-token')
 
-  // 2. If it doesn't pass, send back 400 (bad request)
-  if (error) {
-    return res.status(400).send(error.details[0].message)
+  // 2. If the token doesn't exist, return 401 (unauthorized)
+  if (!token) {
+    return res.status(401).send('Access denied. No token provided')
   }
-
-  // 3. If it passes, create a new score object
-  const newScore = new Score({
-    name: value.name,
-    score: value.score
-  })
-  
 
   try {
-    // 4. Push the new score into the array 
-    const result = await newScore.save()
+    // 3. If the token exists, verify the token. If the token is not valid, an exception will be thrown that will be handled by 'catch'
+    const decodedPayload = jwt.verify(token, process.env.JWTKEY)
 
-    // 5. Send back the newly created score
-    return res.send(result)
+    // 4. If it's a valid token, check if the score object passes the validation. 
+    const { error, value } = validateScore(req.body)
+
+    // 5. If it doesn't pass, send back 400 (bad request)
+    if (error) {
+      return res.status(400).send(error.details[0].message)
+    }
+
+    // 6. If it passes, create a new score object
+    const newScore = new Score({
+      name: value.name,
+      score: value.score
+    })
+    
+
+    try {
+      // 7. Save the score object into the database 
+      const result = await newScore.save()
+
+      // 8. Send back the newly created score
+      return res.send(result)
+
+    } catch (error) {
+      
+      // 6. If error, send back the error
+      res.status(400).send(error)
+    }
 
   } catch (error) {
-    // 6. If error, send back the error
-    res.status(400).send(error)
+    // 6. If error (token not valid) send back 400 (bad request)
+    return res.status(400).send('Invalid token')
   }
+
+
+
+
+
+
+
+
+
+
+
+
+  
   
 })
 
